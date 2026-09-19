@@ -1,6 +1,7 @@
-from typing import List, Optional
+import json
+from typing import Annotated, List, Optional
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -27,7 +28,9 @@ class Settings(BaseSettings):
     PRESIGNED_URL_EXPIRE_SECONDS: int = 300  # 5 minutes
 
     # CORS
-    CORS_ORIGINS: List[str] = [
+    # NoDecode stops pydantic-settings from JSON-decoding the raw env value, so the
+    # validator below can accept the plain comma-separated form as well.
+    CORS_ORIGINS: Annotated[List[str], NoDecode] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
@@ -39,9 +42,12 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v):
-        if isinstance(v, str) and not v.startswith("["):
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                return json.loads(v)
             return [i.strip() for i in v.split(",") if i.strip()]
-        elif isinstance(v, (list, str)):
+        elif isinstance(v, list):
             return v
         return []
 
