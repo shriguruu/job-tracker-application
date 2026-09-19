@@ -39,7 +39,7 @@ yarn-error.log*
 
 # Environment variables
 .env
-Backend/.env
+backend/.env
 frontend/.env
 
 # IDE / OS

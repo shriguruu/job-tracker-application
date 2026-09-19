@@ -22,7 +22,7 @@ services:
   # FastAPI Backend service
   backend:
     build:
-      context: ./Backend
+      context: ./backend
       dockerfile: Dockerfile
     container_name: job_tracker_backend
     restart: unless-stopped
