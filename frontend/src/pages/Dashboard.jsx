@@ -17,12 +17,33 @@ import {
   CheckCircle2,
   Clock,
   ChevronRight,
+  XCircle,
   Loader2,
 } from 'lucide-react';
 import { applicationsApi, resumesApi } from '../services/api';
 import StatusBadge, { STATUS_CONFIG } from '../components/StatusBadge';
 import ApplicationModal from '../components/ApplicationModal';
 import ConfirmationModal from '../components/ConfirmationModal';
+
+// Pipeline columns the board renders when no status filter is active
+const BOARD_STAGES = ['applied', 'oa', 'interview', 'offer'];
+
+// Where each stage advances to, and how its quick-action button looks
+const NEXT_STAGE = {
+  applied: { status: 'oa', label: 'Advance to OA', className: 'text-purple-600 hover:text-purple-800' },
+  oa: { status: 'interview', label: 'Interview', className: 'text-amber-600 hover:text-amber-800' },
+  interview: { status: 'offer', label: 'Offer', className: 'text-emerald-600 hover:text-emerald-800' },
+};
+
+// Clickable metric cards. `key` doubles as the status filter value ('all' clears it).
+const METRIC_CARDS = [
+  { key: 'all', label: 'Total', card: 'bg-white border-slate-200', labelClass: 'text-slate-500', valueClass: 'text-slate-900', ring: 'ring-slate-400' },
+  { key: 'applied', label: 'Applied', card: 'bg-blue-50/20 border-blue-100', labelClass: 'text-blue-600', valueClass: 'text-blue-700', ring: 'ring-blue-500' },
+  { key: 'oa', label: 'OA', card: 'bg-purple-50/20 border-purple-100', labelClass: 'text-purple-600', valueClass: 'text-purple-700', ring: 'ring-purple-500' },
+  { key: 'interview', label: 'Interview', card: 'bg-amber-50/20 border-amber-100', labelClass: 'text-amber-600', valueClass: 'text-amber-700', ring: 'ring-amber-500' },
+  { key: 'offer', label: 'Offers', card: 'bg-emerald-50/20 border-emerald-100', labelClass: 'text-emerald-600', valueClass: 'text-emerald-700', ring: 'ring-emerald-500' },
+  { key: 'rejected', label: 'Rejected', card: 'bg-rose-50/20 border-rose-100', labelClass: 'text-rose-600', valueClass: 'text-rose-700', ring: 'ring-rose-500' },
+];
 
 export default function Dashboard() {
   const [applications, setApplications] = useState([]);
@@ -41,12 +62,13 @@ export default function Dashboard() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [downloadingResumeId, setDownloadingResumeId] = useState(null);
 
+  // Always fetch the unfiltered set so the metric counts stay accurate while a
+  // status filter is applied. Filtering itself happens client-side below.
   const fetchApplications = async () => {
     try {
       setLoading(true);
       setError(null);
-      const params = selectedStatus !== 'all' ? { status: selectedStatus } : {};
-      const data = await applicationsApi.list(params);
+      const data = await applicationsApi.list({ page_size: 100 });
       setApplications(data);
     } catch (err) {
       setError(err.message || 'Failed to load applications');
@@ -57,21 +79,30 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchApplications();
-  }, [selectedStatus]);
+  }, []);
 
-  // Client-side search filter
+  // Client-side status + search filter
   const filteredApps = useMemo(() => {
-    if (!searchQuery.trim()) return applications;
-    const q = searchQuery.toLowerCase();
-    return applications.filter(
-      (app) =>
-        app.company_name.toLowerCase().includes(q) ||
-        app.role_name.toLowerCase().includes(q) ||
-        (app.notes && app.notes.toLowerCase().includes(q))
-    );
-  }, [applications, searchQuery]);
+    let result = applications;
 
-  // Statistics calculation
+    if (selectedStatus !== 'all') {
+      result = result.filter((app) => app.status === selectedStatus);
+    }
+
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (app) =>
+          app.company_name.toLowerCase().includes(q) ||
+          app.role_name.toLowerCase().includes(q) ||
+          (app.notes && app.notes.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [applications, selectedStatus, searchQuery]);
+
+  // Statistics calculation (always over the full set, never the filtered one)
   const stats = useMemo(() => {
     const counts = {
       total: applications.length,
@@ -89,6 +120,22 @@ export default function Dashboard() {
     });
     return counts;
   }, [applications]);
+
+  // Board shows the full pipeline when unfiltered, otherwise only the picked stage
+  // (so 'rejected' and 'withdrawn' are reachable from the cards too).
+  const boardStages = selectedStatus === 'all' ? BOARD_STAGES : [selectedStatus];
+
+  const isFiltered = selectedStatus !== 'all' || searchQuery.trim() !== '';
+
+  // Clicking the already-active card clears the filter again
+  const handleStatusCardClick = (key) => {
+    setSelectedStatus((prev) => (prev === key ? 'all' : key));
+  };
+
+  const handleClearFilters = () => {
+    setSelectedStatus('all');
+    setSearchQuery('');
+  };
 
   const handleEdit = (app) => {
     setEditingApp(app);
@@ -159,32 +206,35 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Metrics Cards */}
+      {/* Metrics Cards — click one to filter the list by that status */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total</span>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{stats.total}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-blue-100 bg-blue-50/20 shadow-sm">
-          <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Applied</span>
-          <p className="text-2xl font-bold text-blue-700 mt-1">{stats.applied}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-purple-100 bg-purple-50/20 shadow-sm">
-          <span className="text-xs font-semibold text-purple-600 uppercase tracking-wider">OA</span>
-          <p className="text-2xl font-bold text-purple-700 mt-1">{stats.oa}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-amber-100 bg-amber-50/20 shadow-sm">
-          <span className="text-xs font-semibold text-amber-600 uppercase tracking-wider">Interview</span>
-          <p className="text-2xl font-bold text-amber-700 mt-1">{stats.interview}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-emerald-100 bg-emerald-50/20 shadow-sm">
-          <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Offers</span>
-          <p className="text-2xl font-bold text-emerald-700 mt-1">{stats.offer}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-rose-100 bg-rose-50/20 shadow-sm">
-          <span className="text-xs font-semibold text-rose-600 uppercase tracking-wider">Rejected</span>
-          <p className="text-2xl font-bold text-rose-700 mt-1">{stats.rejected}</p>
-        </div>
+        {METRIC_CARDS.map((card) => {
+          const isActive = selectedStatus === card.key;
+          const count = card.key === 'all' ? stats.total : stats[card.key];
+          return (
+            <button
+              key={card.key}
+              type="button"
+              onClick={() => handleStatusCardClick(card.key)}
+              aria-pressed={isActive}
+              title={
+                card.key === 'all'
+                  ? 'Show all applications'
+                  : isActive
+                  ? `Clear the ${card.label} filter`
+                  : `Show only ${card.label} applications`
+              }
+              className={`text-left p-4 rounded-xl border shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-1 ${card.card} ${card.ring} ${
+                isActive ? 'ring-2 ring-offset-1 shadow-md' : ''
+              }`}
+            >
+              <span className={`block text-xs font-semibold uppercase tracking-wider ${card.labelClass}`}>
+                {card.label}
+              </span>
+              <p className={`text-2xl font-bold mt-1 ${card.valueClass}`}>{count}</p>
+            </button>
+          );
+        })}
       </div>
 
       {/* Filter and View Controls Bar */}
@@ -203,6 +253,15 @@ export default function Dashboard() {
 
         {/* Status Filter and View Mode switch */}
         <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+          {isFiltered && (
+            <button
+              onClick={handleClearFilters}
+              className="text-xs font-medium text-slate-500 hover:text-slate-800 underline underline-offset-2 shrink-0"
+            >
+              Clear filters
+            </button>
+          )}
+
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-slate-400" />
             <select
@@ -260,11 +319,18 @@ export default function Dashboard() {
           </div>
           <h3 className="text-base font-semibold text-slate-800">No applications found</h3>
           <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-            {searchQuery
-              ? 'No applications match your search query. Try clearing filters.'
+            {isFiltered
+              ? 'No applications match your current filters. Try clearing them.'
               : 'You have not logged any applications yet. Click below to add your first one!'}
           </p>
-          {!searchQuery && (
+          {isFiltered ? (
+            <button
+              onClick={handleClearFilters}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+            >
+              Clear filters
+            </button>
+          ) : (
             <button
               onClick={handleOpenCreate}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm"
@@ -276,10 +342,16 @@ export default function Dashboard() {
         </div>
       ) : viewMode === 'board' ? (
         /* Board / Kanban View */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {['applied', 'oa', 'interview', 'offer'].map((colStatus) => {
+        <div
+          className={`grid gap-4 ${
+            boardStages.length === 1 ? 'grid-cols-1 max-w-md' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
+          }`}
+        >
+          {boardStages.map((colStatus) => {
             const colApps = filteredApps.filter((a) => a.status === colStatus);
             const config = STATUS_CONFIG[colStatus];
+            const next = NEXT_STAGE[colStatus];
+            const canReject = colStatus !== 'rejected' && colStatus !== 'withdrawn';
             return (
               <div key={colStatus} className="flex flex-col bg-slate-100/70 rounded-xl p-3 border border-slate-200/80 min-h-[500px]">
                 {/* Column header */}
@@ -366,37 +438,33 @@ export default function Dashboard() {
                       )}
 
                       {/* Footer: Date & Quick Actions */}
-                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-                        <span className="flex items-center gap-1">
+                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                        <span className="flex items-center gap-1 shrink-0">
                           <Calendar className="w-3 h-3" />
                           {new Date(app.created_at).toLocaleDateString()}
                         </span>
 
-                        {/* Quick next stage advance */}
-                        {colStatus === 'applied' && (
-                          <button
-                            onClick={() => handleQuickStatusChange(app, 'oa')}
-                            className="text-purple-600 hover:text-purple-800 font-medium flex items-center gap-0.5"
-                          >
-                            Advance to OA <ChevronRight className="w-3 h-3" />
-                          </button>
-                        )}
-                        {colStatus === 'oa' && (
-                          <button
-                            onClick={() => handleQuickStatusChange(app, 'interview')}
-                            className="text-amber-600 hover:text-amber-800 font-medium flex items-center gap-0.5"
-                          >
-                            Interview <ChevronRight className="w-3 h-3" />
-                          </button>
-                        )}
-                        {colStatus === 'interview' && (
-                          <button
-                            onClick={() => handleQuickStatusChange(app, 'offer')}
-                            className="text-emerald-600 hover:text-emerald-800 font-medium flex items-center gap-0.5"
-                          >
-                            Offer <ChevronRight className="w-3 h-3" />
-                          </button>
-                        )}
+                        {/* Quick actions: reject, and advance to the next stage */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {canReject && (
+                            <button
+                              onClick={() => handleQuickStatusChange(app, 'rejected')}
+                              title="Mark this application as rejected"
+                              className="text-rose-600 hover:text-rose-800 font-medium flex items-center gap-0.5"
+                            >
+                              <XCircle className="w-3 h-3" /> Reject
+                            </button>
+                          )}
+                          {next && (
+                            <button
+                              onClick={() => handleQuickStatusChange(app, next.status)}
+                              title={`Advance to ${STATUS_CONFIG[next.status].label}`}
+                              className={`font-medium flex items-center gap-0.5 ${next.className}`}
+                            >
+                              {next.label} <ChevronRight className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
