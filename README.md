@@ -162,7 +162,7 @@ Prerequisites: Docker and Docker Compose installed.
 
 #### 1. Backend Setup
 ```bash
-cd Backend
+cd backend
 
 # Create and activate virtual environment
 python -m venv .venv
@@ -203,7 +203,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 A comprehensive test suite covers authentication, tenant data isolation, file upload validation, S3 download URL signing, application CRUD, and standard error shapes:
 
 ```bash
-cd Backend
+cd backend
 .venv\Scripts\python -m pytest -v
 ```
 
