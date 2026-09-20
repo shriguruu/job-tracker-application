@@ -1,0 +1,43 @@
+# Deployment compose file for AWS EC2.
+#
+# Differs from docker-compose.yml in three ways:
+#   1. No local Postgres container - the backend connects to Amazon RDS instead.
+#   2. No AWS access keys - boto3 picks up the EC2 instance's IAM role automatically.
+#   3. The backend port is not published to the host, so only nginx on :80 is
+#      reachable from outside. nginx reaches the API over the compose network.
+#
+# Usage on the instance:
+#   docker compose -f docker-compose.aws.yml up -d --build
+
+services:
+  # FastAPI Backend service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: job_tracker_backend
+    restart: unless-stopped
+    environment:
+      # Full RDS connection string, supplied by .env on the instance
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME}
+      - AWS_REGION=${AWS_REGION}
+      # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are deliberately absent:
+      # leaving them unset makes boto3 fall back to the IAM instance role.
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - USE_LOCAL_S3_MOCK=false
+
+  # React Frontend with Nginx reverse proxy
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: job_tracker_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
